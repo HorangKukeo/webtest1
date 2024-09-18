@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>엑셀 파일로 문제 불러오기</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.17.0/xlsx.full.min.js"></script>
+    <script>
+        let currentQuestionIndex = 0; // 현재 문제의 인덱스
+        let totalQuestions = 3; // 랜덤으로 선택할 문제 수
+        let selectedQuestions = []; // 랜덤으로 선택된 문제들
+        let userAnswers = {}; // 사용자가 선택한 답 저장
+
+        // 엑셀 파일을 불러와 처리하는 함수
+        async function loadExcelFile() {
+            try {
+                const response = await fetch('qdb.xlsx'); // 서버에서 엑셀 파일 불러오기
+                const data = await response.arrayBuffer();
+                const workbook = XLSX.read(data, { type: 'array' });
+
+                // 첫 번째 시트 데이터 가져오기
+                const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+                const jsonData = XLSX.utils.sheet_to_json(firstSheet, { header: 1 });
+
+                const allQuestions = jsonData.slice(1); // 전체 문제 데이터 가져오기
+                selectedQuestions = getRandomQuestions(allQuestions, totalQuestions); // 문제 랜덤 선택
+
+                // 첫 번째 문제 출력
+                displayQuestion(currentQuestionIndex);
+            } catch (error) {
+                console.error("엑셀 파일을 불러오는 중 오류가 발생했습니다.", error);
+            }
+        }
+
+        // 문제를 랜덤으로 선택하는 함수
+        function getRandomQuestions(questions, numberOfQuestions) {
+            const shuffled = questions.sort(() => Math.random() - 0.5);
+            return shuffled.slice(0, numberOfQuestions); // 무작위로 선택된 문제들 반환
+        }
+
+        function formatText(text) {
+            return text.replace(/u\((.*?)\)/g, '<b><u>$1</u></b>'); // u()로 감싸진 텍스트를 bold, underline 처리
+        }
+
+        // 문제를 출력하는 함수 (한 번에 한 문제만)
+        function displayQuestion(index) {
+            const questionContainer = document.getElementById('questions');
+            questionContainer.innerHTML = ''; // 기존 내용을 비움
+
+            const row = selectedQuestions[index]; // 현재 문제 데이터
+            const containerDiv = document.createElement('div');
+            containerDiv.classList.add('container');
+
+            // 발문 (문제)
+            const question = document.createElement('h3');
+            question.textContent = (index + 1) + ". " + row[0];
+            containerDiv.appendChild(question);
+
+            // <보기>, <보기 1>, <보기 2> 추가 (해당 부분이 있으면 출력)
+            const views = ['<보기>', '<보기 1>', '<보기 2>'];
+            for (let i = 1; i <= 3; i++) {
+                if (row[i]) {
+                    const viewTitle = document.createElement('p');
+                    viewTitle.textContent = views[i - 1]; // "<보기>", "<보기 1>", "<보기 2>"
+                    const viewContent = document.createElement('p');
+                    viewContent.innerHTML = formatText(row[i]); // u()로 감싸진 텍스트를 bold + underline 처리
+
+                    // 틀 안에 보기 내용 감싸기
+                    const viewContainer = document.createElement('div');
+                    viewContainer.classList.add('sub-container');
+                    viewContainer.appendChild(viewTitle);
+                    viewContainer.appendChild(viewContent);
+
+                    containerDiv.appendChild(viewContainer); // 보기 내용 추가
+                }
+            }
+
+            // 선지(선택지) 추가
+            for (let i = 4; i <= 7; i++) {
+                const label = document.createElement('label');
+                const input = document.createElement('input');
+                input.type = 'radio';
+                input.name = 'q' + index; // 각 문제마다 고유 이름
+                input.value = i - 3;
+
+                // 이전에 선택한 답이 있으면 체크
+                if (userAnswers[index] && userAnswers[index] === (i - 3).toString()) {
+                    input.checked = true;
+                }
+
+                label.appendChild(input);
+                label.appendChild(document.createTextNode(row[i]));
+                containerDiv.appendChild(label);
+                containerDiv.appendChild(document.createElement('br'));
+            }
+
+            questionContainer.appendChild(containerDiv);
+
+            // 버튼 추가
+            const button = document.createElement('button');
+            button.textContent = (index < totalQuestions - 1) ? "다음" : "채점하기";
+            button.onclick = (index < totalQuestions - 1) ? nextQuestion : checkAnswersAndDisplayResults;
+            questionContainer.appendChild(button);
+        }
+
+        // 다음 문제로 이동하는 함수
+        function nextQuestion() {
+            const selectedAnswer = document.querySelector('input[name="q' + currentQuestionIndex + '"]:checked');
+            if (!selectedAnswer) {
+                alert("답을 선택하세요.");
+                return;
+            }
+
+            // 사용자의 선택 저장
+            userAnswers[currentQuestionIndex] = selectedAnswer.value;
+
+            currentQuestionIndex++;
+            displayQuestion(currentQuestionIndex); // 다음 문제 출력
+        }
+
+        // 채점 및 결과 페이지 출력
+        function checkAnswersAndDisplayResults() {
+            const selectedAnswer = document.querySelector('input[name="q' + currentQuestionIndex + '"]:checked');
+            if (!selectedAnswer) {
+                alert("답을 선택하세요.");
+                return;
+            }
+
+            // 마지막 문제 선택 저장
+            userAnswers[currentQuestionIndex] = selectedAnswer.value;
+
+            // 결과 페이지 출력
+            displayResults();
+        }
+
+        // 결과 페이지를 출력하는 함수
+        function displayResults() {
+            const questionContainer = document.getElementById('questions');
+            questionContainer.innerHTML = ''; // 기존 내용을 비움
+
+            let score = 0;
+
+            // 각 문제에 대해 결과 표시
+            selectedQuestions.forEach((row, index) => {
+                const containerDiv = document.createElement('div');
+                containerDiv.classList.add('container');
+
+                // 발문 (문제)
+                const question = document.createElement('h3');
+                question.textContent = (index + 1) + ". " + row[0];
+                containerDiv.appendChild(question);
+
+                // <보기>, <보기 1>, <보기 2> 추가 (해당 부분이 있으면 출력)
+                const views = ['<보기>', '<보기 1>', '<보기 2>'];
+                for (let i = 1; i <= 3; i++) {
+                    if (row[i]) {
+                        const viewTitle = document.createElement('p');
+                        viewTitle.textContent = views[i - 1]; // "<보기>", "<보기 1>", "<보기 2>"
+                        const viewContent = document.createElement('p');
+                        viewContent.innerHTML = formatText(row[i]); // u()로 감싸진 텍스트를 bold + underline 처리
+
+                        // 틀 안에 보기 내용 감싸기
+                        const viewContainer = document.createElement('div');
+                        viewContainer.classList.add('sub-container');
+                        viewContainer.appendChild(viewTitle);
+                        viewContainer.appendChild(viewContent);
+
+                        containerDiv.appendChild(viewContainer); // 보기 내용 추가
+                    }
+                }
+
+                // 정답 및 선택지 출력
+                const correctAnswer = row[8]; // 정답은 9번째 열
+                const userAnswer = userAnswers[index]; // 사용자가 선택한 답
+
+                for (let i = 4; i <= 7; i++) {
+                    const answerText = document.createElement('p');
+                    answerText.textContent = row[i];
+
+                    // 정답일 경우 색깔 다르게 + 굵게 표시
+                    if (i - 3 == correctAnswer) {
+                        answerText.style.color = 'green'; // 정답은 녹색
+                        answerText.style.fontWeight = 'bold'; // 정답 굵게
+                    }
+
+                    // 사용자가 선택한 답이 틀린 경우 빨간색 + 굵게 표시
+                    if (userAnswer && userAnswer == (i - 3).toString()) {
+                        if (userAnswer !== correctAnswer.toString()) {
+                            answerText.style.color = 'red'; // 오답은 빨간색
+                            answerText.style.fontWeight = 'bold'; // 오답 굵게
+                        }
+                    }
+
+                    containerDiv.appendChild(answerText); // 선택지 추가
+                }
+
+                // 해설 표시 (row[9] 또는 엑셀에서 10번째 열)
+                if (row[9]) {
+                    const reviewContainer = document.createElement('div');
+                    reviewContainer.classList.add('reviewcontainer');
+                    const explanation = document.createElement('p');
+                    explanation.textContent = "해설: " + row[9]; // 해설 추가
+                    reviewContainer.appendChild(explanation);
+                    containerDiv.appendChild(reviewContainer); // 해설 컨테이너 추가
+                }
+
+                // 정답 맞춘 경우 점수 추가
+                if (userAnswer && userAnswer === correctAnswer.toString()) {
+                    score++; // 정답을 맞췄을 때 점수 추가
+                }
+
+                questionContainer.appendChild(containerDiv); // 각 문제에 대한 컨테이너 추가
+            });
+
+            // 점수 출력
+            const scoreText = document.createElement('h3');
+            scoreText.textContent = "총 점수: " + score + "/" + totalQuestions;
+            questionContainer.appendChild(scoreText); // 점수 표시
+
+            // 다시 풀기 버튼
+            const resetButton = document.createElement('button');
+            resetButton.textContent = "다시 풀기";
+            resetButton.onclick = resetQuiz;
+            questionContainer.appendChild(resetButton); // 퀴즈 초기화 버튼 추가
+        }
+
+
+
+
+        // 퀴즈를 초기화하는 함수
+        function resetQuiz() {
+            currentQuestionIndex = 0;
+            userAnswers = {}; // 사용자의 답 초기화
+            displayQuestion(currentQuestionIndex); // 첫 번째 문제로 돌아감
+        }
+
+        // 페이지 로딩 시 자동으로 엑셀 파일 불러오기
+        window.onload = loadExcelFile;
+    </script>
+
+    <style>
+        body {
+            font-family: 'Arial', sans-serif;
+            background-color: #f0f8ff;
+            margin: 0;
+            padding: 0;
+            text-align: center;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            flex-direction: column;
+        }
+        .container {
+            background-color: #fff;
+            padding: 20px;
+            margin-bottom: 50px !important;
+            border-radius: 8px;
+            box-shadow: 0 0 15px rgba(0, 0, 0, 0.1);
+            width: 400px;
+            text-align: left;
+            margin: 0 auto;
+        }
+        .sub-container {
+            background-color: #e6f7ff; /* 보기 항목의 배경색 */
+            padding: 10px;
+            margin: 15px 0; /* 보기 사이에 여백 */
+            border-radius: 6px; /* 둥근 테두리 */
+            border: 1px solid #b3d4fc; /* 보기 항목 구분을 위한 테두리 */
+        }
+        .reviewcontainer {
+            background-color: #f9f9f9; /* 해설 부분의 배경색 */
+            border-left: 4px solid #4CAF50; /* 좌측에 녹색 선 추가 */
+            padding: 10px;
+            margin-top: 10px;
+            margin-bottom: 10px;
+            border-radius: 5px; /* 둥근 테두리 */
+            color: #333;
+        }
+        h1 {
+            color: #333;
+            font-size: 24px;
+            margin-bottom: 20px;
+        }
+        label {
+            display: block;
+            background-color: #e6f7ff;
+            padding: 10px;
+            margin-bottom: 10px;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: background-color 0.3s ease;
+        }
+        label:hover {
+            background-color: #b3e0ff;
+        }
+        input[type="radio"] {
+            margin-right: 10px;
+        }
+        button {
+            background-color: #4CAF50;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            transition: background-color 0.3s;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        p {
+            margin: 5px 0;
+        }
+    </style>
+</head>
+<body>
+    <h1>품사 기본 문제</h1>
+
+    <!-- 문제와 선택지가 표시될 영역 -->
+    <div id="questions"></div>
+</body>
+</html>
